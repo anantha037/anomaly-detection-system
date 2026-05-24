@@ -1,0 +1,10 @@
+# Project specific
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+mlruns/
+*.pkl
+*.pt
+*.pth
+.env
