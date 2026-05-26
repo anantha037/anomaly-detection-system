@@ -7,6 +7,7 @@ import joblib
 import numpy as np
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from loguru import logger
 
 # Add project root to path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -16,7 +17,7 @@ app_state = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Initializing API lifespan...")
+    logger.info("Initializing API lifespan...")
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     app_state["device"] = device
@@ -33,38 +34,38 @@ async def lifespan(app: FastAPI):
         model.to(device)
         model.eval()
         app_state["model"] = model
-        print(f"Loaded model from {model_path}")
+        logger.info(f"Loaded model from {model_path}")
     else:
         app_state["model"] = None
-        print(f"Warning: Model not found at {model_path}")
+        logger.warning(f"Model not found at {model_path}")
 
     # Load Threshold
     if os.path.exists(threshold_path):
         app_state["threshold"] = float(np.load(threshold_path))
-        print(f"Loaded threshold from {threshold_path}: {app_state['threshold']}")
+        logger.info(f"Loaded threshold from {threshold_path}: {app_state['threshold']}")
     else:
         app_state["threshold"] = None
-        print(f"Warning: Threshold not found at {threshold_path}")
+        logger.warning(f"Threshold not found at {threshold_path}")
 
     # Load Scaler
     if os.path.exists(scaler_path):
         app_state["scaler"] = joblib.load(scaler_path)
-        print(f"Loaded scaler from {scaler_path}")
+        logger.info(f"Loaded scaler from {scaler_path}")
     else:
         app_state["scaler"] = None
-        print(f"Warning: Scaler not found at {scaler_path}")
+        logger.warning(f"Scaler not found at {scaler_path}")
 
     # Load Alert Summary
     if os.path.exists(alert_summary_path):
         with open(alert_summary_path, 'r') as f:
             app_state["alert_summary"] = json.load(f)
-        print(f"Loaded alert summary from {alert_summary_path}")
+        logger.info(f"Loaded alert summary from {alert_summary_path}")
     else:
         app_state["alert_summary"] = None
-        print(f"Warning: Alert summary not found at {alert_summary_path}")
+        logger.warning(f"Alert summary not found at {alert_summary_path}")
 
     yield
-    print("Shutting down API...")
+    logger.info("Shutting down API...")
     app_state.clear()
 
 def get_app_state():
