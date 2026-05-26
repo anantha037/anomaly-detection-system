@@ -1,8 +1,25 @@
 import numpy as np
 import pytest
+import torch
 from fastapi.testclient import TestClient
 
+from src.api.dependencies import get_app_state
 from src.api.main import app
+from src.models.autoencoder import LSTMAutoencoder
+
+
+def override_get_app_state():
+    dummy_model = LSTMAutoencoder(n_features=8, latent_dim=32, n_layers=2)
+    dummy_model.eval()
+    return {
+        "model": dummy_model,
+        "threshold": 0.5,
+        "device": torch.device("cpu"),
+        "alert_summary": {"total_alerts": 10, "alert_rate": 0.05},
+    }
+
+
+app.dependency_overrides[get_app_state] = override_get_app_state
 
 
 @pytest.fixture(scope="module")
