@@ -1,11 +1,12 @@
+import json
 import os
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
-import json
-import torch
+
 import joblib
 import numpy as np
-from contextlib import asynccontextmanager
+import torch
 from fastapi import FastAPI
 from loguru import logger
 
@@ -15,18 +16,19 @@ from src.models.autoencoder import LSTMAutoencoder
 
 app_state = {}
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing API lifespan...")
-    
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     app_state["device"] = device
-    
+
     model_path = os.getenv("MODEL_PATH", "data/processed/autoencoder.pth")
     threshold_path = os.getenv("THRESHOLD_PATH", "data/processed/threshold.npy")
     scaler_path = os.getenv("SCALER_PATH", "data/processed/scaler.pkl")
     alert_summary_path = os.getenv("ALERT_SUMMARY_PATH", "data/processed/alert_summary.json")
-    
+
     # Load Model
     if os.path.exists(model_path):
         model = LSTMAutoencoder(n_features=8, latent_dim=32, n_layers=2)
@@ -57,7 +59,7 @@ async def lifespan(app: FastAPI):
 
     # Load Alert Summary
     if os.path.exists(alert_summary_path):
-        with open(alert_summary_path, 'r') as f:
+        with open(alert_summary_path, "r") as f:
             app_state["alert_summary"] = json.load(f)
         logger.info(f"Loaded alert summary from {alert_summary_path}")
     else:
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down API...")
     app_state.clear()
+
 
 def get_app_state():
     return app_state

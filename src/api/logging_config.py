@@ -1,8 +1,10 @@
-import sys
-import os
 import json
 import logging
+import os
+import sys
+
 from loguru import logger
+
 
 def serialize_json(record):
     # Formats the Loguru log record into a structured JSON string
@@ -14,15 +16,16 @@ def serialize_json(record):
         "function": record["function"],
         "line": record["line"],
         "exception": None,
-        **{k: v for k, v in record["extra"].items() if k != "serialized"}
+        **{k: v for k, v in record["extra"].items() if k != "serialized"},
     }
     if record["exception"]:
         log_data["exception"] = {
             "type": str(record["exception"].type),
             "value": str(record["exception"].value),
-            "traceback": record["exception"].traceback
+            "traceback": record["exception"].traceback,
         }
     return json.dumps(log_data)
+
 
 def formatter(record):
     # Determines formatting style.
@@ -33,19 +36,16 @@ def formatter(record):
     # Otherwise, clean human-readable output
     return "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>\n"
 
+
 def setup_logging():
     # Remove standard loguru handler
     logger.remove()
-    
+
     # Configure Loguru
     logger.add(
-        sys.stdout,
-        format=formatter,
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        backtrace=True,
-        diagnose=True
+        sys.stdout, format=formatter, level=os.getenv("LOG_LEVEL", "INFO").upper(), backtrace=True, diagnose=True
     )
-    
+
     # Intercept standard library logging (e.g. Uvicorn logs)
     class InterceptHandler(logging.Handler):
         def emit(self, record):
@@ -53,12 +53,12 @@ def setup_logging():
                 level = logger.level(record.levelname).name
             except ValueError:
                 level = record.levelno
-            
+
             frame, depth = logging.currentframe(), 2
             while frame.f_code.co_filename == logging.__file__:
                 frame = frame.f_back
                 depth += 1
-                
+
             logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
     # Direct uvicorn logs into loguru
