@@ -24,10 +24,11 @@ async def lifespan(app: FastAPI):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     app_state["device"] = device
 
-    model_path = os.getenv("MODEL_PATH", "data/processed/autoencoder.pth")
-    threshold_path = os.getenv("THRESHOLD_PATH", "data/processed/threshold.npy")
-    scaler_path = os.getenv("SCALER_PATH", "data/processed/scaler.pkl")
-    alert_summary_path = os.getenv("ALERT_SUMMARY_PATH", "data/processed/alert_summary.json")
+    project_root = Path(__file__).resolve().parents[2]
+    model_path = os.getenv("MODEL_PATH", str(project_root / "data/processed/autoencoder.pth"))
+    threshold_path = os.getenv("THRESHOLD_PATH", str(project_root / "data/processed/threshold.npy"))
+    scaler_path = os.getenv("SCALER_PATH", str(project_root / "data/processed/scaler.pkl"))
+    alert_summary_path = os.getenv("ALERT_SUMMARY_PATH", str(project_root / "data/processed/alert_summary.json"))
 
     # Load Model
     if os.path.exists(model_path):

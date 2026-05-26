@@ -128,7 +128,7 @@ python dashboard/app.py
 
 ### How to Make Predictions (`POST /predict`)
 
-To submit batches of telemetry windows to the model, send a `POST` request to `http://localhost:8000/predict` with a JSON payload of shape `[N_windows, 30, 8]`. 
+To submit batches of telemetry windows to the model, send a `POST` request to `http://localhost:8000/predict` with a JSON payload of shape `[N_windows, 30, 8]`.
 
 Each window consists of **30 timesteps** across **8 telemetry features** in this order:
 `[Accelerometer1RMS, Accelerometer2RMS, Current, Pressure, Temperature, Thermocouple, Voltage, Volume Flow RateRMS]`
