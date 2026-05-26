@@ -4,6 +4,21 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 from pathlib import Path
 import os
+import pandera.pandas as pa
+
+# Define Pandera schema for data quality validation
+SKAB_SCHEMA = pa.DataFrameSchema({
+    "Accelerometer1RMS": pa.Column(float, coerce=True),
+    "Accelerometer2RMS": pa.Column(float, coerce=True),
+    "Current": pa.Column(float, coerce=True),
+    "Pressure": pa.Column(float, coerce=True),
+    "Temperature": pa.Column(float, coerce=True),
+    "Thermocouple": pa.Column(float, coerce=True),
+    "Voltage": pa.Column(float, coerce=True),
+    "Volume Flow RateRMS": pa.Column(float, coerce=True),
+    "anomaly": pa.Column(int, coerce=True, checks=pa.Check.isin([0, 1])),
+    "changepoint": pa.Column(float, coerce=True, required=False)
+})
 
 def create_windows(data, labels=None, window_size=30, stride=1):
     windows = []
@@ -30,6 +45,10 @@ def preprocess():
             all_dfs.append(df)
 
     combined = pd.concat(all_dfs, ignore_index=True)
+
+    # Validate data quality using Pandera
+    print("Validating dataset quality...")
+    combined = SKAB_SCHEMA.validate(combined)
 
     feature_cols = ["Accelerometer1RMS", "Accelerometer2RMS", "Current",
                     "Pressure", "Temperature", "Thermocouple",
