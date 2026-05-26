@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:8000/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - anomaly-net
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+    env_file:
+      - .env
+    environment:
+      - API_URL=http://fastapi:8000
+    depends_on:
+      fastapi:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - anomaly-net
+
+networks:
+  anomaly-net:
+    driver: bridge
