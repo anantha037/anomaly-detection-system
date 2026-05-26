@@ -21,7 +21,8 @@ def load_test_data():
         return None, None
 
 def fetch_predictions(X_test, batch_size=500):
-    url = "http://localhost:8000/predict"
+    api_url = os.getenv("API_URL", "http://localhost:8000")
+    url = f"{api_url}/predict"
     all_results = []
     
     total_windows = len(X_test)

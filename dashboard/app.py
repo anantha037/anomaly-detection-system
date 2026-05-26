@@ -29,8 +29,9 @@ if model_path.exists():
 model.to(device)
 
 def get_api_status():
+    api_url = os.getenv("API_URL", "http://localhost:8000")
     try:
-        r = requests.get("http://localhost:8000/health", timeout=2)
+        r = requests.get(f"{api_url}/health", timeout=2)
         return r.status_code == 200
     except:
         return False
@@ -154,9 +155,11 @@ def update_dashboard(n):
         return err, get_empty_fig("Data Missing"), get_empty_fig(), get_empty_fig(), get_empty_fig(), html.Div()
         
     try:
+        api_url = os.getenv("API_URL", "http://localhost:8000")
+        
         # Fetch data
-        threshold_data = requests.get("http://localhost:8000/threshold").json()
-        metrics_data = requests.get("http://localhost:8000/metrics").json()
+        threshold_data = requests.get(f"{api_url}/threshold").json()
+        metrics_data = requests.get(f"{api_url}/metrics").json()
         predictions = fetch_predictions(X_test)
         
         if not predictions:
