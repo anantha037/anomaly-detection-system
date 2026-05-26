@@ -29,3 +29,4 @@ httpx==0.28.1
 ruff==0.9.9
 pandera>=0.31.1
 loguru==0.7.2
+pre-commit==4.1.0
