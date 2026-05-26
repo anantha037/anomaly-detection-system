@@ -37,7 +37,9 @@ def get_api_status():
 
 # Layout
 app.layout = dbc.Container([
-    dcc.Interval(id='interval-component', interval=10*1000, n_intervals=0),
+    # Store and intervals
+    dcc.Interval(id='interval-component', interval=10*1000, n_intervals=0), # For health check
+    dcc.Interval(id='load-interval', max_intervals=1, interval=1), # For one-time data load
     
     # Header
     dbc.Row([
@@ -121,6 +123,13 @@ def update_status(n):
             html.Span(" API Disconnected", className="text-danger ms-2 fw-bold")
         ])
 
+def get_empty_fig(text="No Data"):
+    fig = go.Figure()
+    if text:
+        fig.add_annotation(text=text, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(color="white", size=20))
+    fig.update_layout(template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", xaxis=dict(visible=False), yaxis=dict(visible=False))
+    return fig
+
 @app.callback(
     [Output("kpi-cards", "children"),
      Output("main-plot", "figure"),
@@ -128,113 +137,130 @@ def update_status(n):
      Output("heatmap-plot", "figure"),
      Output("sensor-plot", "figure"),
      Output("model-table", "children")],
-    [Input("interval-component", "n_intervals")]
+    [Input("load-interval", "n_intervals")]
 )
 def update_dashboard(n):
-    # Only update plots on the very first load to avoid re-running massive predictions
-    if n > 0:
-        return dash.no_update
+    # This callback now fires exactly once per page load via max_intervals=1
+    if n is None:
+        raise dash.exceptions.PreventUpdate
         
     is_up = get_api_status()
-    if not is_up or X_test is None:
-        return html.Div("API is offline or data missing.", className="text-danger"), go.Figure(), go.Figure(), go.Figure(), go.Figure(), html.Div()
+    if not is_up:
+        err = html.Div("API is offline. Please ensure FastAPI is running on port 8000.", className="text-danger p-3 border border-danger")
+        return err, get_empty_fig("API Offline"), get_empty_fig(), get_empty_fig(), get_empty_fig(), html.Div()
         
-    # Fetch data
-    threshold_data = requests.get("http://localhost:8000/threshold").json()
-    metrics_data = requests.get("http://localhost:8000/metrics").json()
-    predictions = fetch_predictions(X_test)
-    
-    threshold = threshold_data["threshold"]
-    f1 = metrics_data["f1_score"]
-    
-    if not predictions:
-        return html.Div("Failed to fetch predictions."), go.Figure(), go.Figure(), go.Figure(), go.Figure(), html.Div()
+    if X_test is None:
+        err = html.Div("X_test is missing. Check your data/processed directory.", className="text-danger p-3 border border-danger")
+        return err, get_empty_fig("Data Missing"), get_empty_fig(), get_empty_fig(), get_empty_fig(), html.Div()
+        
+    try:
+        # Fetch data
+        threshold_data = requests.get("http://localhost:8000/threshold").json()
+        metrics_data = requests.get("http://localhost:8000/metrics").json()
+        predictions = fetch_predictions(X_test)
+        
+        if not predictions:
+            err = html.Div("Failed to fetch predictions from API. Check terminal logs.", className="text-danger p-3 border border-danger")
+            return err, get_empty_fig("Prediction Failed"), get_empty_fig(), get_empty_fig(), get_empty_fig(), html.Div()
 
-    df = pd.DataFrame(predictions)
-    total_windows = len(df)
-    anom_count = df["is_anomaly"].sum()
-    anom_pct = (anom_count / total_windows) * 100 if total_windows > 0 else 0
+        threshold = threshold_data.get("threshold", 0.0)
+        f1 = metrics_data.get("f1_score", 0.0)
+        
+        df = pd.DataFrame(predictions)
+        total_windows = len(df)
+        anom_count = df["is_anomaly"].sum()
+        anom_pct = (anom_count / total_windows) * 100 if total_windows > 0 else 0
+        
+        # KPI Cards
+        kpis = [
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Total Windows Analyzed", className="text-secondary"), html.H3(f"{total_windows:,}", className="text-info")]))),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Anomalies Detected", className="text-secondary"), html.H3(f"{anom_count:,} ({anom_pct:.1f}%)", className="text-danger")]))),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Model F1 Score", className="text-secondary"), html.H3(f"{f1:.4f}", className="text-success")]))),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Current Threshold", className="text-secondary"), html.H3(f"{threshold:.4f}", className="text-warning")])))
+        ]
+        
+        # Main Plot
+        fig_main = go.Figure()
+        
+        # Ground truth shaded regions
+        if y_test is not None:
+            in_anomaly = False
+            start_idx = 0
+            for i, val in enumerate(y_test):
+                if val == 1 and not in_anomaly:
+                    in_anomaly = True
+                    start_idx = i
+                elif val == 0 and in_anomaly:
+                    in_anomaly = False
+                    fig_main.add_vrect(x0=start_idx, x1=i-1, fillcolor="red", opacity=0.2, line_width=0, layer="below")
+            if in_anomaly:
+                fig_main.add_vrect(x0=start_idx, x1=len(y_test)-1, fillcolor="red", opacity=0.2, line_width=0, layer="below")
     
-    # KPI Cards
-    kpis = [
-        dbc.Col(dbc.Card(dbc.CardBody([html.H6("Total Windows Analyzed", className="text-secondary"), html.H3(f"{total_windows:,}", className="text-info")]))),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H6("Anomalies Detected", className="text-secondary"), html.H3(f"{anom_count:,} ({anom_pct:.1f}%)", className="text-danger")]))),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H6("Model F1 Score", className="text-secondary"), html.H3(f"{f1:.4f}", className="text-success")]))),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H6("Current Threshold", className="text-secondary"), html.H3(f"{threshold:.4f}", className="text-warning")])))
-    ]
+            fig_main.add_trace(go.Scatter(x=df["window_id"], y=df["reconstruction_error"], mode='lines', name='Error', line=dict(color='#1f77b4', width=1.5)))
+            
+            anoms = df[df["is_anomaly"]]
+            if not anoms.empty:
+                fig_main.add_trace(go.Scatter(x=anoms["window_id"], y=anoms["reconstruction_error"], mode='markers', name='Anomaly Prediction', marker=dict(color='red', size=6, symbol='x')))
+            
+            fig_main.add_hline(y=threshold, line_dash="dash", line_color="red", annotation_text="Threshold")
+            fig_main.update_layout(template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40))
+            
+            # Dist Plot
+            fig_dist = go.Figure()
+            normals = df[~df["is_anomaly"]]
+            if not normals.empty:
+                fig_dist.add_trace(go.Histogram(x=normals["reconstruction_error"], name='Normal', marker_color='#1f77b4', opacity=0.7))
+            if not anoms.empty:
+                fig_dist.add_trace(go.Histogram(x=anoms["reconstruction_error"], name='Anomaly', marker_color='red', opacity=0.7))
+            fig_dist.add_vline(x=threshold, line_dash="dash", line_color="red")
+            fig_dist.update_layout(barmode='overlay', template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40))
+        
+        # Heatmap Plot
+        n_segments = 50
+        df["segment"] = pd.cut(df["window_id"], bins=n_segments, labels=False)
+        heatmap_data = df.groupby(["severity", "segment"]).size().unstack(fill_value=0)
+        for sev in ["none", "low", "medium", "high"]:
+            if sev not in heatmap_data.index:
+                heatmap_data.loc[sev] = 0
+        heatmap_data = heatmap_data.loc[["high", "medium", "low", "none"]]
+        
+        fig_heatmap = go.Figure(data=go.Heatmap(
+            z=heatmap_data.values,
+            y=heatmap_data.index,
+            x=[f"Seg {i}" for i in range(n_segments)],
+            colorscale="Reds"
+        ))
+        fig_heatmap.update_layout(template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40))
+        
+        # Sensor Plot
+        sensor_errors = compute_sensor_errors(X_test, predictions, model, device)
+        fig_sensor = go.Figure()
+        if sensor_errors:
+            fig_sensor.add_trace(go.Bar(x=list(sensor_errors.keys()), y=list(sensor_errors.values()), marker_color='#e34c26'))
+        fig_sensor.update_layout(template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40), xaxis_tickangle=-45)
     
-    # Main Plot
-    fig_main = go.Figure()
-    
-    # Ground truth shaded regions
-    if y_test is not None:
-        in_anomaly = False
-        start_idx = 0
-        for i, val in enumerate(y_test):
-            if val == 1 and not in_anomaly:
-                in_anomaly = True
-                start_idx = i
-            elif val == 0 and in_anomaly:
-                in_anomaly = False
-                fig_main.add_vrect(x0=start_idx, x1=i-1, fillcolor="red", opacity=0.2, line_width=0, layer="below")
-        if in_anomaly:
-            fig_main.add_vrect(x0=start_idx, x1=len(y_test)-1, fillcolor="red", opacity=0.2, line_width=0, layer="below")
-
-    # Line plot
-    fig_main.add_trace(go.Scatter(x=df["window_id"], y=df["reconstruction_error"], mode='lines', name='Error', line=dict(color='#1f77b4', width=1.5)))
-    
-    # Anomaly markers
-    anoms = df[df["is_anomaly"]]
-    fig_main.add_trace(go.Scatter(x=anoms["window_id"], y=anoms["reconstruction_error"], mode='markers', name='Anomaly Prediction', marker=dict(color='red', size=6, symbol='x')))
-    
-    # Threshold line
-    fig_main.add_hline(y=threshold, line_dash="dash", line_color="red", annotation_text="Threshold")
-    fig_main.update_layout(template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40))
-    
-    # Dist Plot
-    fig_dist = go.Figure()
-    fig_dist.add_trace(go.Histogram(x=df[~df["is_anomaly"]]["reconstruction_error"], name='Normal', marker_color='#1f77b4', opacity=0.7))
-    fig_dist.add_trace(go.Histogram(x=df[df["is_anomaly"]]["reconstruction_error"], name='Anomaly', marker_color='red', opacity=0.7))
-    fig_dist.add_vline(x=threshold, line_dash="dash", line_color="red")
-    fig_dist.update_layout(barmode='overlay', template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40))
-    
-    # Heatmap Plot
-    n_segments = 50
-    df["segment"] = pd.cut(df["window_id"], bins=n_segments, labels=False)
-    heatmap_data = df.groupby(["severity", "segment"]).size().unstack(fill_value=0)
-    for sev in ["none", "low", "medium", "high"]:
-        if sev not in heatmap_data.index:
-            heatmap_data.loc[sev] = 0
-    heatmap_data = heatmap_data.loc[["high", "medium", "low", "none"]]
-    
-    fig_heatmap = go.Figure(data=go.Heatmap(
-        z=heatmap_data.values,
-        y=heatmap_data.index,
-        x=[f"Seg {i}" for i in range(n_segments)],
-        colorscale="Reds"
-    ))
-    fig_heatmap.update_layout(template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40))
-    
-    # Sensor Plot
-    sensor_errors = compute_sensor_errors(X_test, predictions, model, device)
-    fig_sensor = go.Figure()
-    if sensor_errors:
-        fig_sensor.add_trace(go.Bar(x=list(sensor_errors.keys()), y=list(sensor_errors.values()), marker_color='#e34c26'))
-    fig_sensor.update_layout(template="plotly_dark", plot_bgcolor="#161b22", paper_bgcolor="#0d1117", margin=dict(l=40, r=40, t=40, b=40), xaxis_tickangle=-45)
-    
-    # Table
-    table_data = [
-        {"Model": "LSTM Autoencoder", "Precision": 0.9317, "Recall": 0.6441, "F1": 0.7616},
-        {"Model": "Isolation Forest", "Precision": 0.3698, "Recall": 1.0000, "F1": 0.5399}
-    ]
-    table = dash_table.DataTable(
-        data=table_data,
-        style_header={'backgroundColor': '#30363d', 'color': 'white', 'fontWeight': 'bold', 'border': '1px solid #30363d'},
-        style_data={'backgroundColor': '#161b22', 'color': 'white', 'border': '1px solid #30363d'},
-        style_cell={'textAlign': 'center', 'padding': '10px'}
-    )
-    
-    return kpis, fig_main, fig_dist, fig_heatmap, fig_sensor, table
+        # Table
+        table_data = [
+            {"Model": "LSTM Autoencoder", "Precision": 0.9317, "Recall": 0.6441, "F1": 0.7616},
+            {"Model": "Isolation Forest", "Precision": 0.3698, "Recall": 1.0000, "F1": 0.5399}
+        ]
+        table = dash_table.DataTable(
+            data=table_data,
+            style_header={'backgroundColor': '#30363d', 'color': 'white', 'fontWeight': 'bold', 'border': '1px solid #30363d'},
+            style_data={'backgroundColor': '#161b22', 'color': 'white', 'border': '1px solid #30363d'},
+            style_cell={'textAlign': 'center', 'padding': '10px'}
+        )
+        
+        return kpis, fig_main, fig_dist, fig_heatmap, fig_sensor, table
+        
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        err_div = html.Div([
+            html.H5("Internal Dashboard Error"),
+            html.Pre(err_msg, className="text-white")
+        ], className="bg-danger p-3 rounded")
+        return err_div, get_empty_fig("Error"), get_empty_fig(), get_empty_fig(), get_empty_fig(), html.Div()
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=8050)
